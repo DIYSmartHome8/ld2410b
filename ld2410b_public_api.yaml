@@ -1,0 +1,337 @@
+substitutions:
+  devicename: ld2410b
+  friendly_name: ld2410b
+  device_api_key: !secret api_key
+
+esphome:
+  name: $devicename
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: true
+
+esp32:
+  board: wemos_d1_mini32
+  framework:
+    type: arduino
+
+wifi:
+  networks:
+    - ssid: !secret ssid1
+      password: !secret ssid1_password
+  ap:
+    # ssid: ${devicename}
+    # password: sm123456
+    ap_timeout: 2min
+  # fast_connect: False
+  power_save_mode: none
+  domain: .local
+
+# mqtt:
+#   broker: !secret mqtt_broker
+#   username: !secret mqtt_username
+#   password: !secret mqtt_password
+#   port: !secret mqtt_port
+#   discovery: True
+#   discovery_retain: True
+#   discovery_prefix: homeassistant
+
+api:
+  encryption:
+    key: !secret api_key
+  reboot_timeout: 0s
+
+captive_portal:
+
+ota:
+  password: !secret ota_password
+
+web_server:
+  port: 80
+  # auth:
+  #   username: admin
+  #   password: !secret web_password
+
+globals:
+  - id: cpu_speed
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: last_update_ld2410b
+    type: unsigned long
+    restore_value: no
+    initial_value: '0'
+  - id: init_zone_publish
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+debug:
+  update_interval: 30s
+
+# Enable logging
+logger:
+  level: INFO
+
+uart:
+  id: ld2410b_uart_gpio
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 256000
+  parity: NONE
+  stop_bits: 1
+
+ld2410:
+  id: ld2410b_uart
+  uart_id: ld2410b_uart_gpio
+
+light:
+  - platform: status_led
+    name: StatusLed
+    id: light_status_led
+    internal: true
+    output: RUN_LED
+
+output:
+  - platform: gpio
+    id: RUN_LED
+    pin: GPIO27
+    inverted: true
+
+text_sensor:
+  - platform: debug
+    reset_reason:
+      name: ESP Reset Reason
+      icon: mdi:anchor
+      disabled_by_default: True
+  - platform: template
+    name: ESP Uptime
+    id: uptime_human
+    icon: mdi:clock-start
+  - platform: wifi_info
+    ip_address:
+      name: ESP IP Address
+      entity_category: "diagnostic"
+      disabled_by_default: True
+      icon: mdi:ip-network
+    mac_address:
+      name: ESP MAC
+  - platform: template
+    name: "API Key"
+    id: api_key_sensor
+    lambda: |-
+      return {"${device_api_key}"};
+
+binary_sensor:
+  - platform: gpio
+    pin: GPIO19
+    name: PIR Out
+    device_class: motion
+  - platform: gpio
+    pin: GPIO33
+    name: LD Redar Out
+    device_class: motion
+  - platform: ld2410
+    has_target:
+      name: LD Presence
+    has_moving_target:
+      name: LD Moving Target
+    has_still_target:
+      name: LD Still Target
+
+sensor:
+  - platform: template
+    id: sys_esp_temperature
+    name: ESP Temperature
+    lambda: return temperatureRead();
+    unit_of_measurement: °C
+    device_class: TEMPERATURE
+    update_interval: 45s
+    entity_category: "diagnostic"
+  - platform: uptime
+    name: ESP Uptime
+    id: sys_uptime
+    update_interval: 3600s
+    internal: true
+    on_raw_value:
+      then:
+        - text_sensor.template.publish:
+            id: uptime_human
+            state: !lambda |-
+              int seconds = round(id(sys_uptime).raw_state);
+              int days = seconds / (24 * 3600);
+              seconds = seconds % (24 * 3600);
+              int hours = seconds / 3600;
+              seconds = seconds % 3600;
+              int minutes = seconds /  60;
+              seconds = seconds % 60;
+              return (
+                (days ? String(days) + "d " : "") +
+                (hours ? String(hours) + "h " : "") +
+                (minutes ? String(minutes) + "m " : "") +
+                (String(seconds) + "s")
+              ).c_str();
+  - platform: wifi_signal 
+    name: ESP RSSI
+    id: wifi_signal_db
+    update_interval: 60s
+    entity_category: "diagnostic"
+  - platform: adc
+    pin: GPIO34
+    name: Brightness1
+    update_interval: 15s
+    device_class: illuminance
+    attenuation: 0db
+    unit_of_measurement: lx
+    filters:
+      - lambda: |-
+          return round((x / 10000.0) * -2000000.0 + 200);
+  - platform: adc
+    pin: GPIO35
+    name: Brightness2
+    update_interval: 15s
+    device_class: illuminance
+    attenuation: 0db
+    unit_of_measurement: lx
+    filters:
+      - lambda: |-
+          return round((x / 10000.0) * -2000000.0 + 200);
+  - platform: template
+    id: esp_memory
+    icon: mdi:memory
+    name: ESP Free Memory
+    lambda: return heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024;
+    unit_of_measurement: 'kB'
+    state_class: measurement
+    entity_category: "diagnostic"
+    update_interval: 60s
+  - platform: ld2410
+    moving_distance:
+      name : LD Moving Distance
+      id: moving_distance
+    still_distance:
+      name: LD Still Distance
+      id: still_distance
+    moving_energy:
+      name: LD Move Energy
+    still_energy:
+      name: LD Still Energy
+    detection_distance:
+      name: LD Detection Distance
+    light:
+      name: LD Sun Light
+    # g0:
+    #   move_energy:
+    #     name: LD g0 move energy
+    #   still_energy:
+    #     name: LD g0 still energy
+    # g1:
+    #   move_energy:
+    #     name: LD g1 move energy
+    #   still_energy:
+    #     name: LD g1 still energy
+    # g2:
+    #   move_energy:
+    #     name: LD g2 move energy
+    #   still_energy:
+    #     name: LD g2 still energy
+    # g3:
+    #   move_energy:
+    #     name: LD g3 move energy
+    #   still_energy:
+    #     name: LD g3 still energy
+    # g4:
+    #   move_energy:
+    #     name: LD g4 move energy
+    #   still_energy:
+    #     name: LD g4 still energy
+    # g5:
+    #   move_energy:
+    #     name: LD g5 move energy
+    #   still_energy:
+    #     name: LD g5 still energy
+    # g6:
+    #   move_energy:
+    #     name: LD g6 move energy
+    #   still_energy:
+    #     name: LD g6 still energy
+    # g7:
+    #   move_energy:
+    #     name: LD g7 move energy
+    #   still_energy:
+    #     name: LD g7 still energy
+    # g8:
+    #   move_energy:
+    #     name: LD g8 move energy
+    #   still_energy:
+    #     name: LD g8 still energy
+
+button:
+  - platform: restart
+    icon: mdi:power-cycle
+    name: ESP Reboot
+  - platform: factory_reset
+    disabled_by_default: True
+    name: ESP Factory Reset
+    id: factory_reset_all
+
+switch:
+  - platform: ld2410
+    engineering_mode:
+      name: LD Engineering Mode
+    bluetooth:
+      name: LD Control Bluetooth
+
+number:
+  - platform: ld2410
+    timeout:
+      name: LD timeout
+    # light_threshold:
+    #   name: LD light threshold
+    max_move_distance_gate:
+      name: LD max move distance gate
+    max_still_distance_gate:
+      name: LD max still distance gate
+#     g0:
+#       move_threshold:
+#         name: LD g0 move threshold
+#       still_threshold:
+#         name: LD g0 still threshold
+#     g1:
+#       move_threshold:
+#         name: LD g1 move threshold
+#       still_threshold:
+#         name: LD g1 still threshold
+#     g2:
+#       move_threshold:
+#         name: LD g2 move threshold
+#       still_threshold:
+#         name: LD g2 still threshold
+#     g3:
+#       move_threshold:
+#         name: LD g3 move threshold
+#       still_threshold:
+#         name: LD g3 still threshold
+#     g4:
+#       move_threshold:
+#         name: LD g4 move threshold
+#       still_threshold:
+#         name: LD g4 still threshold
+#     g5:
+#       move_threshold:
+#         name: LD g5 move threshold
+#       still_threshold:
+#         name: LD g5 still threshold
+#     g6:
+#       move_threshold:
+#         name: LD g6 move threshold
+#       still_threshold:
+#         name: LD g6 still threshold
+#     g7:
+#       move_threshold:
+#         name: LD g7 move threshold
+#       still_threshold:
+#         name: LD g7 still threshold
+#     g8:
+#       move_threshold:
+#         name: LD g8 move threshold
+#       still_threshold:
+#         name: LD g8 still threshold
